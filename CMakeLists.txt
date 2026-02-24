@@ -13,6 +13,8 @@ find_package(geometry_msgs REQUIRED)
 # Generate action interfaces from within this package
 rosidl_generate_interfaces(${PROJECT_NAME}
   "action/CartesianPathFollow.action"
+  "action/Pick.action"
+  "action/Place.action"
   DEPENDENCIES geometry_msgs
 )
 
@@ -21,9 +23,17 @@ install(PROGRAMS primitive_actions/cartesian_path_action_server.py
   DESTINATION lib/${PROJECT_NAME}
   RENAME cartesian_path_action_server
 )
+install(PROGRAMS primitive_actions/primitive_action_planner.py
+  DESTINATION lib/${PROJECT_NAME}
+  RENAME primitive_action_planner
+)
 install(PROGRAMS primitive_actions/test_cartesian_circle.py
   DESTINATION lib/${PROJECT_NAME}
   RENAME test_cartesian_circle
+)
+install(PROGRAMS primitive_actions/test_primitive_actions.py
+  DESTINATION lib/${PROJECT_NAME}
+  RENAME test_primitive_actions
 )
 install(PROGRAMS primitive_actions/franka_move_to_start.py
   DESTINATION lib/${PROJECT_NAME}

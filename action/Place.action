@@ -1,0 +1,44 @@
+# Place primitive action
+#
+# Places an object held by the gripper at the specified XYZ target using a
+# top-down approach.  Orientation follows the same convention as Pick:
+# only yaw (rotation around world Z) is controllable; roll and pitch are
+# fixed for a vertical, top-down descent.
+#
+# Execution sequence:
+#   1. Move to approach pose  (x, y, z + approach_height)  — top-down
+#   2. Descend to place pose  (x, y, z)
+#   3. Open gripper  (release object)
+#   4. Retract to approach pose (x, y, z + approach_height)
+
+# ---------------------------------------------------------------------------
+# Goal
+# ---------------------------------------------------------------------------
+
+# XYZ position (in robot base frame) of the tool-tip at the place point.
+float64 x
+float64 y
+float64 z
+
+# Yaw angle (rad) — rotation of the gripper around the world Z-axis.
+float64 yaw
+
+# Height (m) above the target used for the pre-/post-place approach.
+# Set to 0 to use the server default (typically 0.10 m).
+float64 approach_height
+
+---
+# ---------------------------------------------------------------------------
+# Result
+# ---------------------------------------------------------------------------
+bool success
+string message
+
+---
+# ---------------------------------------------------------------------------
+# Feedback
+# ---------------------------------------------------------------------------
+
+# Human-readable label for the current execution stage.
+# Values: "approaching" | "descending" | "releasing" | "retracting"
+string stage

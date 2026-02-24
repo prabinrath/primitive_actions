@@ -1,0 +1,48 @@
+# Pick primitive action
+#
+# Picks up an object by moving the end-effector to the specified XYZ target
+# using a top-down approach. The gripper orientation is controlled solely by
+# yaw (rotation around the world Z-axis); roll and pitch are fixed for a
+# vertical, top-down approach.
+#
+# Execution sequence:
+#   1. Open gripper
+#   2. Move to approach pose  (x, y, z + approach_height)  — top-down
+#   3. Descend to pick pose   (x, y, z)
+#   4. Close gripper
+#   5. Retract to approach pose (x, y, z + approach_height)
+
+# ---------------------------------------------------------------------------
+# Goal
+# ---------------------------------------------------------------------------
+
+# XYZ position (in robot base frame) of the tool-tip at the pick point.
+float64 x
+float64 y
+float64 z
+
+# Yaw angle (rad) — rotation of the gripper around the world Z-axis.
+# This is the only orientation degree of freedom; roll and pitch are fixed
+# for a top-down approach.
+float64 yaw
+
+# Height (m) above the target used for the pre-/post-pick approach.
+# Set to 0 to use the server default (typically 0.10 m).
+float64 approach_height
+
+---
+# ---------------------------------------------------------------------------
+# Result
+# ---------------------------------------------------------------------------
+bool success
+string message
+
+---
+# ---------------------------------------------------------------------------
+# Feedback
+# ---------------------------------------------------------------------------
+
+# Human-readable label for the current execution stage.
+# Values: "opening_gripper" | "approaching" | "descending" |
+#         "grasping" | "retracting"
+string stage
