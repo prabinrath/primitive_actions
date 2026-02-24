@@ -290,36 +290,28 @@ class PrimitiveActionPlanner(Node):
             target_pose.orientation.w,
         ])
 
-        # --- Adaptive waypoint count: max of position and orientation demands ---
-        dist = float(np.linalg.norm(p_end - p_start))
-        n_pos = int(np.ceil(dist / self._interp_step))
-
-        # Geodesic (shortest-path) angle between start and target orientations
-        R_err = R_start.inv() * R_end
-        angle = float(np.abs(R_err.magnitude()))  # radians in [0, π]
-        n_rot = int(np.ceil(angle / self._interp_step_rad))
-
-        n = max(1, n_pos, n_rot)
-
-        # --- SLERP interpolator ---
-        slerp = Slerp([0.0, 1.0], Rotation.concatenate([R_start, R_end]))
-
-        # Skip t=0 (current pose); include t=1 (target).
-        ts = np.linspace(0.0, 1.0, n + 1)[1:]
-
-        poses: list[Pose] = []
-        for t in ts:
-            p = (1.0 - t) * p_start + t * p_end
-            q = slerp(t).as_quat()
+        def make_pose(p: np.ndarray, r: Rotation) -> Pose:
+            q = r.as_quat()
             pose = Pose()
-            pose.position.x = float(p[0])
-            pose.position.y = float(p[1])
-            pose.position.z = float(p[2])
-            pose.orientation.x = float(q[0])
-            pose.orientation.y = float(q[1])
-            pose.orientation.z = float(q[2])
-            pose.orientation.w = float(q[3])
-            poses.append(pose)
+            pose.position.x, pose.position.y, pose.position.z = \
+                float(p[0]), float(p[1]), float(p[2])
+            pose.orientation.x, pose.orientation.y = float(q[0]), float(q[1])
+            pose.orientation.z, pose.orientation.w = float(q[2]), float(q[3])
+            return pose
+
+        # --- Phase 1: rotate in place (p_start fixed, R_start → R_end) ---
+        R_err = R_start.inv() * R_end
+        angle = float(np.abs(R_err.magnitude()))
+        n_rot = max(1, int(np.ceil(angle / self._interp_step_rad)))
+        slerp = Slerp([0.0, 1.0], Rotation.concatenate([R_start, R_end]))
+        rot_ts = np.linspace(0.0, 1.0, n_rot + 1)[1:]
+        poses = [make_pose(p_start, slerp(t)) for t in rot_ts]
+
+        # --- Phase 2: translate (R_end fixed, p_start → p_end) ---
+        dist = float(np.linalg.norm(p_end - p_start))
+        n_pos = max(1, int(np.ceil(dist / self._interp_step)))
+        pos_ts = np.linspace(0.0, 1.0, n_pos + 1)[1:]
+        poses += [make_pose((1.0 - t) * p_start + t * p_end, R_end) for t in pos_ts]
 
         return poses
 

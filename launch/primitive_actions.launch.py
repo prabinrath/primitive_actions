@@ -94,11 +94,11 @@ def generate_launch_description():
             'approach_height', default_value='0.10',
             description='Clearance above pick/place target for top-down approach [m].'),
         DeclareLaunchArgument(
-            'interp_step', default_value='0.01',
+            'interp_step', default_value='0.005',
             description='Cartesian step size between interpolated waypoints [m]. '
                         'Smaller = smoother but more waypoints.'),
         DeclareLaunchArgument(
-            'interp_step_rad', default_value='0.05',
+            'interp_step_rad', default_value='0.02',
             description='Orientation step between interpolated waypoints [rad]. '
                         'Smaller = smoother rotation.'),
         DeclareLaunchArgument(
