@@ -301,19 +301,38 @@ class PrimitiveActionPlanner(Node):
             pose.orientation.z, pose.orientation.w = float(q[2]), float(q[3])
             return pose
 
-        # --- Phase 1: rotate in place (p_start fixed, R_start → R_end) ---
+        # --- Build per-axis parameter arrays ---
         R_err = R_start.inv() * R_end
         angle = float(np.abs(R_err.magnitude()))
         n_rot = max(1, int(np.ceil(angle / self._interp_step_rad)))
         slerp = Slerp([0.0, 1.0], Rotation.concatenate([R_start, R_end]))
         rot_ts = np.linspace(0.0, 1.0, n_rot + 1)[1:]
-        poses = [make_pose(p_start, slerp(t)) for t in rot_ts]
 
-        # --- Phase 2: translate (R_end fixed, p_start → p_end) ---
         dist = float(np.linalg.norm(p_end - p_start))
         n_pos = max(1, int(np.ceil(dist / self._interp_step)))
         pos_ts = np.linspace(0.0, 1.0, n_pos + 1)[1:]
-        poses += [make_pose((1.0 - t) * p_start + t * p_end, R_end) for t in pos_ts]
+
+        if self._open_loop:
+            # --- Simultaneous rotation + translation (zip; pad shorter array
+            #     with its last value so both reach their final state together) ---
+            n = max(n_rot, n_pos)
+
+            def _pad(ts: np.ndarray, length: int) -> np.ndarray:
+                if len(ts) < length:
+                    ts = np.append(ts, np.full(length - len(ts), ts[-1]))
+                return ts
+
+            rot_ts_p = _pad(rot_ts, n)
+            pos_ts_p = _pad(pos_ts, n)
+            poses = [
+                make_pose((1.0 - t) * p_start + t * p_end, slerp(r))
+                for r, t in zip(rot_ts_p, pos_ts_p)
+            ]
+        else:
+            # --- Sequential: rotate in place first, then translate ---
+            poses = [make_pose(p_start, slerp(t)) for t in rot_ts]
+            poses += [make_pose((1.0 - t) * p_start + t * p_end, R_end)
+                      for t in pos_ts]
 
         return poses
 
