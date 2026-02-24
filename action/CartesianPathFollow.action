@@ -1,0 +1,39 @@
+# CartesianPathFollow action
+#
+# Execute a Cartesian-space end-effector trajectory on a robot arm using IK.
+# The goal is a standard geometry_msgs/PoseArray – each Pose is an EE waypoint
+# in the world/robot-base frame.
+
+# ---------------------------------------------------------------------------
+# Goal
+# ---------------------------------------------------------------------------
+# Sequence of EE waypoints expressed as poses in the robot base frame.
+geometry_msgs/PoseArray path
+
+# Name of the EE frame to control (e.g. "fr3_hand_tcp").
+string ee_frame
+
+# Maximum Cartesian linear speed (m/s). 0 → use server default.
+float64 linear_speed
+
+# Maximum Cartesian angular speed (rad/s). 0 → use server default.
+float64 angular_speed
+
+# Exponential smoothing factor for joint positions [0, 1].
+# 1.0 = no smoothing (pure IK), 0.0 = never moves.  Default: 0.9
+float64 alpha
+
+---
+# ---------------------------------------------------------------------------
+# Result
+# ---------------------------------------------------------------------------
+bool success
+string message
+
+---
+# ---------------------------------------------------------------------------
+# Feedback
+# ---------------------------------------------------------------------------
+int32 current_waypoint
+int32 total_waypoints
+geometry_msgs/Pose current_ee_pose
