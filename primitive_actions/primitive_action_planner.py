@@ -81,6 +81,7 @@ class PrimitiveActionPlanner(Node):
         self.declare_parameter('gripper_force',      30.0)
         self.declare_parameter('interp_step',        0.01)   # m per waypoint
         self.declare_parameter('interp_step_rad',     0.05)   # rad per waypoint
+        self.declare_parameter('open_loop',           True)   # open vs closed loop cartesian
         self.declare_parameter('urdf_path',          '')
         self.declare_parameter('joint_names', [
             'fr3_joint1', 'fr3_joint2', 'fr3_joint3',
@@ -100,6 +101,7 @@ class PrimitiveActionPlanner(Node):
         self._gripper_force      = self.get_parameter('gripper_force').value
         self._interp_step: float     = self.get_parameter('interp_step').value
         self._interp_step_rad: float = self.get_parameter('interp_step_rad').value
+        self._open_loop: bool        = self.get_parameter('open_loop').value
         self._joint_names: list  = self.get_parameter('joint_names').value
         self._neutral_positions: list = self.get_parameter('neutral_positions').value
 
@@ -338,6 +340,7 @@ class PrimitiveActionPlanner(Node):
         goal.linear_speed = self._linear_speed
         goal.angular_speed = self._angular_speed
         goal.alpha = self._alpha
+        goal.open_loop = self._open_loop
 
         done_event = threading.Event()
         result_holder: list[bool] = [False]

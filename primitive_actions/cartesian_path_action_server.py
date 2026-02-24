@@ -58,6 +58,7 @@ class CartesianPathActionServer(Node):
         ])
         self.declare_parameter(
             'joint_trajectory_topic', '/fr3_arm_controller/joint_trajectory')
+        self.declare_parameter('open_loop_max_vel', 0.5)  # rad/s, c-space velocity norm
 
         self.joint_names: list = self.get_parameter('joint_names').value
         self.neutral_positions: list = self.get_parameter('neutral_positions').value
@@ -69,6 +70,7 @@ class CartesianPathActionServer(Node):
         self.orientation_threshold: float = self.get_parameter('orientation_threshold').value
         self.waypoint_timeout: float = self.get_parameter('waypoint_timeout').value
         self.control_rate: float = self.get_parameter('control_rate').value
+        self.open_loop_max_vel: float = self.get_parameter('open_loop_max_vel').value
 
         # --- Load URDF and set up placo IK solver ---
         urdf_path: str = self.get_parameter('urdf_path').value
@@ -236,8 +238,12 @@ class CartesianPathActionServer(Node):
                 success=False, message='Another goal is already executing.')
 
         try:
-            return self._run_path(
-                goal_handle, waypoints, ee_frame, alpha, dt)
+            if goal.open_loop:
+                return self._run_path_open_loop(
+                    goal_handle, waypoints, ee_frame)
+            else:
+                return self._run_path(
+                    goal_handle, waypoints, ee_frame, alpha, dt)
         finally:
             self._exec_lock.release()
 
@@ -357,6 +363,128 @@ class CartesianPathActionServer(Node):
         return CartesianPathFollow.Result(
             success=True,
             message=f'Path completed: {len(waypoints)} waypoints executed.')
+
+
+    # ------------------------------------------------------------------
+    # Open-loop helpers
+    # ------------------------------------------------------------------
+
+    def _precompute_ik_path(self, waypoints, ee_frame) -> list[list[float]]:
+        """Run IK offline for every waypoint and return joint configs.
+
+        Uses a large solver dt so IK converges in few iterations.
+        The robot model state carries over between waypoints so the solver
+        always starts warm from the previous solution.
+        """
+        self.solver.dt = 0.1  # large step for fast offline convergence
+        configs: list[list[float]] = []
+        for wp_pose in waypoints:
+            T_target = self._pose_to_T(wp_pose)
+            self.frame_task.T_world_frame = T_target
+            for _ in range(200):
+                self.solver.solve(True)
+                self.robot.update_kinematics()
+                T_ee = self.robot.get_T_world_frame(ee_frame)
+                pos_err = float(np.linalg.norm(T_ee[:3, 3] - T_target[:3, 3]))
+                ang_err = self._rotation_angle_error(T_ee[:3, :3], T_target[:3, :3])
+                if pos_err < self.position_threshold and ang_err < self.orientation_threshold:
+                    break
+            configs.append([self.robot.get_joint(n) for n in self.joint_names])
+        self.solver.dt = 1.0 / self.control_rate  # restore
+        return configs
+
+    def _smooth_trajectory(
+            self,
+            configs: list[list[float]],
+            max_vel_norm: float = 0.3
+    ) -> tuple[list[list[float]], list[float]]:
+        """Cosine velocity profile: zero velocity at start and end, peak at midpoint.
+
+        Returns (trajectory_points, timestamps_from_start_in_seconds).
+        """
+        qs = np.array(configs)  # (N, n_joints)
+
+        # Cumulative arc-length, normalised to [0, 1]
+        dists = np.linalg.norm(np.diff(qs, axis=0), axis=1)
+        cum_norm = np.concatenate([[0.0], np.cumsum(dists)])
+        total = cum_norm[-1]
+        if total < 1e-9:
+            return configs[:], [0.0]
+        cum_norm /= total
+
+        # Time axis: T = π*L / (2*v_max)
+        T = np.pi * total / (2.0 * max_vel_norm)
+        times = np.linspace(0.0, T, max(2, int(np.ceil(T / 0.1))) + 1)
+
+        # Cosine arc-length at each time step → interpolate each joint
+        s = 0.5 * (1.0 - np.cos(np.pi * times / T))
+        out = np.column_stack([np.interp(s, cum_norm, qs[:, j])
+                                for j in range(qs.shape[1])])
+        return out.tolist(), times.tolist()
+
+    def _run_path_open_loop(self, goal_handle, waypoints, ee_frame):
+        """Precompute full joint trajectory and send it in one shot."""
+        self.frame_task.configure(ee_frame, 'soft', 0.5, 0.5)
+        self.solver.dt = 1.0 / self.control_rate
+
+        # Wait for first joint state
+        deadline = self.get_clock().now().nanoseconds / 1e9 + 5.0
+        while True:
+            with self._js_lock:
+                js = self._latest_js
+            if js is not None:
+                break
+            if self.get_clock().now().nanoseconds / 1e9 > deadline:
+                goal_handle.abort()
+                return CartesianPathFollow.Result(
+                    success=False,
+                    message='Timed out waiting for /joint_states')
+            time.sleep(0.05)
+
+        # Seed placo from current robot state
+        self._sync_robot_to_js(js)
+        self.robot.update_kinematics()
+
+        self.get_logger().info(
+            f'Open-loop: precomputing IK for {len(waypoints)} waypoints ...')
+        configs = self._precompute_ik_path(waypoints, ee_frame)
+
+        # Prepend actual current joint state so trajectory starts from where
+        # the robot is, not from the IK solution of the first waypoint.
+        current_q = self._current_joint_positions(js)
+        configs = [current_q] + configs
+
+        traj_pts, timestamps = self._smooth_trajectory(configs, self.open_loop_max_vel)
+        self.get_logger().info(
+            f'Open-loop: trajectory has {len(traj_pts)} points, '
+            f'duration={timestamps[-1]:.2f}s')
+
+        # Build and publish the full JointTrajectory.
+        # stamp=0 means "start executing when received" – the standard way to
+        # send a pre-built trajectory so no points are already in the past.
+        msg = JointTrajectory()
+        msg.header.stamp.sec = 0
+        msg.header.stamp.nanosec = 0
+        msg.header.frame_id = 'base'
+        msg.joint_names = self.joint_names
+        for positions, t in zip(traj_pts, timestamps):
+            pt = JointTrajectoryPoint()
+            pt.positions = [float(p) for p in positions]
+            secs = int(t)
+            nsecs = int((t - secs) * 1e9)
+            pt.time_from_start = Duration(sec=secs, nanosec=nsecs)
+            msg.points.append(pt)
+        self._pub.publish(msg)
+
+        # Block until the trajectory has had time to execute, so that callers
+        # who chain goals (e.g. the primitive planner) read the correct robot
+        # state when they start the next segment.
+        time.sleep(timestamps[-1])
+
+        goal_handle.succeed()
+        return CartesianPathFollow.Result(
+            success=True,
+            message=f'Open-loop trajectory sent: {len(traj_pts)} points.')
 
 
 # ---------------------------------------------------------------------------

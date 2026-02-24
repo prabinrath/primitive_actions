@@ -29,6 +29,7 @@ def generate_launch_description():
             'orientation_threshold':  LaunchConfiguration('orientation_threshold'),
             'waypoint_timeout':       LaunchConfiguration('waypoint_timeout'),
             'control_rate':           LaunchConfiguration('control_rate'),
+            'open_loop_max_vel':      LaunchConfiguration('open_loop_max_vel'),
         }.items(),
     )
 
@@ -50,6 +51,7 @@ def generate_launch_description():
             'gripper_open_width': LaunchConfiguration('gripper_open_width'),
             'gripper_speed':      LaunchConfiguration('gripper_speed'),
             'gripper_force':      LaunchConfiguration('gripper_force'),
+            'open_loop':          LaunchConfiguration('open_loop'),
         }],
     )
 
@@ -88,6 +90,9 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'control_rate', default_value='50.0',
             description='IK control loop rate [Hz].'),
+        DeclareLaunchArgument(
+            'open_loop_max_vel', default_value='0.5',
+            description='Open-loop peak c-space velocity norm [rad/s].'),
 
         # --- PrimitiveActionPlanner-only ---
         DeclareLaunchArgument(
@@ -110,6 +115,10 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'gripper_force', default_value='30.0',
             description='Gripper grasp force [N].'),
+        DeclareLaunchArgument(
+            'open_loop', default_value='true',
+            description='Use open-loop (precomputed) trajectory execution if true, '
+                        'closed-loop (per-waypoint IK) if false.'),
 
         cartesian_launch,
         primitive_planner,

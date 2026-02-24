@@ -23,6 +23,11 @@ float64 angular_speed
 # 1.0 = no smoothing (pure IK), 0.0 = never moves.  Default: 0.9
 float64 alpha
 
+# If true, precompute IK for all waypoints, smooth the joint-space path to
+# max c-space velocity norm 0.1 rad/s, and send the full trajectory at once.
+# If false (default), execute closed-loop waypoint-by-waypoint.
+bool open_loop
+
 ---
 # ---------------------------------------------------------------------------
 # Result

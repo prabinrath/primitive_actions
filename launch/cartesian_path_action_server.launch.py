@@ -83,6 +83,7 @@ def generate_launch_description():
             'orientation_threshold': LaunchConfiguration('orientation_threshold'),
             'waypoint_timeout': LaunchConfiguration('waypoint_timeout'),
             'control_rate': LaunchConfiguration('control_rate'),
+            'open_loop_max_vel': LaunchConfiguration('open_loop_max_vel'),
         }],
     )
 
@@ -119,6 +120,9 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'control_rate', default_value='50.0',
             description='IK control loop rate [Hz].'),
+        DeclareLaunchArgument(
+            'open_loop_max_vel', default_value='0.5',
+            description='Open-loop peak c-space velocity norm [rad/s].'),
 
         franka_bringup,
         arm_controller_spawner,
