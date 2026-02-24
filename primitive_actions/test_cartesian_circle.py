@@ -3,7 +3,7 @@
 Test script: send a circular EE path to the cartesian_path_follow action server.
 
 The circle:
-  - Radius  : 20 cm (configurable via --radius)
+  - Radius  : 5 cm (configurable via --radius)
   - Plane   : X-Z (vertical), starting tangent direction is -Z (downward)
   - Centre  : p0 + [radius, 0, 0]  →  first motion is straight down
   - Samples : 360 waypoints (1° per step) at constant orientation (start pose)
@@ -36,7 +36,7 @@ class CircleTestClient(Node):
     def __init__(self):
         super().__init__('cartesian_circle_test_client')
 
-        self.declare_parameter('radius', 0.20)
+        self.declare_parameter('radius', 0.05)
         self.declare_parameter('n_samples', 360)
         self.declare_parameter('ee_frame', 'fr3_hand_tcp')
         self.declare_parameter('urdf_path', '')

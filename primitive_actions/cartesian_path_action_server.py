@@ -38,13 +38,11 @@ class CartesianPathActionServer(Node):
     """
 
     # Server-side defaults (overridable via action goal fields)
-    DEFAULT_LINEAR_SPEED = 0.1   # m/s
-    DEFAULT_ANGULAR_SPEED = 0.5  # rad/s
     DEFAULT_ALPHA = 0.9          # IK smoothing factor
 
     # Convergence thresholds
     POSITION_THRESHOLD = 0.005   # 5 mm
-    ORIENTATION_THRESHOLD = 0.01  # ~0.57 deg
+    ORIENTATION_THRESHOLD = 0.02  # ~1.15 deg
 
     # Per-waypoint safety timeout
     WAYPOINT_TIMEOUT = 30.0      # seconds
@@ -108,8 +106,7 @@ class CartesianPathActionServer(Node):
         self.frame_task = self.solver.add_frame_task(
             self.default_ee_frame, np.eye(4))
         self.frame_task.configure(
-            self.default_ee_frame, 'soft',
-            self.DEFAULT_LINEAR_SPEED, self.DEFAULT_ANGULAR_SPEED)
+            self.default_ee_frame, 'soft', 0.5, 0.5)
 
         # Nullspace regularisation – pull joints toward neutral
         self.joints_task = self.solver.add_joints_task()
@@ -227,18 +224,13 @@ class CartesianPathActionServer(Node):
         goal = goal_handle.request
         waypoints = goal.path.poses
         ee_frame = goal.ee_frame if goal.ee_frame else self.default_ee_frame
-        lin_speed = (goal.linear_speed
-                     if goal.linear_speed > 0 else self.DEFAULT_LINEAR_SPEED)
-        ang_speed = (goal.angular_speed
-                     if goal.angular_speed > 0 else self.DEFAULT_ANGULAR_SPEED)
         alpha = (goal.alpha
                  if 0.0 < goal.alpha <= 1.0 else self.DEFAULT_ALPHA)
         dt = 1.0 / self.CONTROL_RATE
 
         self.get_logger().info(
             f'Goal accepted: {len(waypoints)} waypoints | '
-            f'ee_frame={ee_frame} | v={lin_speed:.2f}m/s '
-            f'ω={ang_speed:.2f}rad/s | α={alpha:.2f}')
+            f'ee_frame={ee_frame} | α={alpha:.2f}')
 
         # Only one execution at a time (protects the shared placo solver)
         if not self._exec_lock.acquire(blocking=False):
@@ -248,16 +240,14 @@ class CartesianPathActionServer(Node):
 
         try:
             return self._run_path(
-                goal_handle, waypoints, ee_frame,
-                lin_speed, ang_speed, alpha, dt)
+                goal_handle, waypoints, ee_frame, alpha, dt)
         finally:
             self._exec_lock.release()
 
-    def _run_path(self, goal_handle, waypoints, ee_frame,
-                  lin_speed, ang_speed, alpha, dt):
+    def _run_path(self, goal_handle, waypoints, ee_frame, alpha, dt):
 
-        # Reconfigure frame task for this goal
-        self.frame_task.configure(ee_frame, 'soft', lin_speed, ang_speed)
+        # Reconfigure frame task for this goal (weights: position=0.5, orientation=0.5)
+        self.frame_task.configure(ee_frame, 'soft', 0.5, 0.5)
 
         # Reset solver dt to default at the start of each new execution
         self.solver.dt = 1.0 / self.CONTROL_RATE
@@ -319,14 +309,34 @@ class CartesianPathActionServer(Node):
                     js = self._latest_js
                 self._sync_robot_to_js(js)
 
-                # --- Adaptive dt (skip first iteration, keep existing solver.dt) ---
+                # --- Adaptive dt (clamped to avoid large steps during stalls) ---
                 elapsed = now - last_loop
                 if last_loop != wp_start:
-                    self.solver.dt = elapsed
+                    self.solver.dt = min(elapsed, 1.0 / self.CONTROL_RATE * 4)
                 last_loop = now
 
-                # --- Solve IK and apply to placo state ---
+                # --- FK of real robot state (before IK solve) ---
                 self.robot.update_kinematics()
+                T_ee = self.robot.get_T_world_frame(ee_frame)
+                pos_err = float(np.linalg.norm(T_ee[:3, 3] - T_target[:3, 3]))
+                ang_err = self._rotation_angle_error(
+                    T_ee[:3, :3], T_target[:3, :3])
+
+                # --- Feedback (always publish, including at convergence) ---
+                feedback.current_waypoint = wp_idx
+                feedback.current_ee_pose = self._T_to_pose(T_ee)
+                goal_handle.publish_feedback(feedback)
+
+                # --- Convergence check (against real robot FK) ---
+                if (pos_err < self.POSITION_THRESHOLD
+                        and ang_err < self.ORIENTATION_THRESHOLD):
+                    self.get_logger().info(
+                        f'  Waypoint {wp_idx + 1}/{len(waypoints)} '
+                        f'reached  pos={pos_err * 1e3:.1f}mm  '
+                        f'ang={np.degrees(ang_err):.2f}°')
+                    break
+
+                # --- Solve IK and apply to placo state ---
                 self.solver.solve(True)
 
                 ik_positions = [
@@ -343,25 +353,6 @@ class CartesianPathActionServer(Node):
                     cmd = ik_positions
 
                 self._publish_joint_command(cmd)
-
-                # --- Convergence check ---
-                T_ee = self.robot.get_T_world_frame(ee_frame)
-                pos_err = float(np.linalg.norm(T_ee[:3, 3] - T_target[:3, 3]))
-                ang_err = self._rotation_angle_error(
-                    T_ee[:3, :3], T_target[:3, :3])
-
-                # --- Feedback ---
-                feedback.current_waypoint = wp_idx
-                feedback.current_ee_pose = self._T_to_pose(T_ee)
-                goal_handle.publish_feedback(feedback)
-
-                if (pos_err < self.POSITION_THRESHOLD
-                        and ang_err < self.ORIENTATION_THRESHOLD):
-                    self.get_logger().info(
-                        f'  Waypoint {wp_idx + 1}/{len(waypoints)} '
-                        f'reached  pos={pos_err * 1e3:.1f}mm  '
-                        f'ang={np.degrees(ang_err):.2f}°')
-                    break
 
                 time.sleep(dt)
 
