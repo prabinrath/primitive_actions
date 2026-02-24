@@ -77,8 +77,12 @@ def generate_launch_description():
         parameters=[{
             'urdf_path': LaunchConfiguration('urdf_path'),
             'ee_frame': LaunchConfiguration('ee_frame'),
-            'joint_trajectory_topic':
-                LaunchConfiguration('joint_trajectory_topic'),
+            'joint_trajectory_topic': LaunchConfiguration('joint_trajectory_topic'),
+            'default_alpha': LaunchConfiguration('default_alpha'),
+            'position_threshold': LaunchConfiguration('position_threshold'),
+            'orientation_threshold': LaunchConfiguration('orientation_threshold'),
+            'waypoint_timeout': LaunchConfiguration('waypoint_timeout'),
+            'control_rate': LaunchConfiguration('control_rate'),
         }],
     )
 
@@ -100,6 +104,21 @@ def generate_launch_description():
             'joint_trajectory_topic',
             default_value='/fr3_arm_controller/joint_trajectory',
             description='JointTrajectory topic for the arm controller.'),
+        DeclareLaunchArgument(
+            'default_alpha', default_value='0.95',
+            description='IK smoothing factor (0, 1].'),
+        DeclareLaunchArgument(
+            'position_threshold', default_value='0.005',
+            description='Waypoint convergence position threshold [m].'),
+        DeclareLaunchArgument(
+            'orientation_threshold', default_value='0.02',
+            description='Waypoint convergence orientation threshold [rad].'),
+        DeclareLaunchArgument(
+            'waypoint_timeout', default_value='30.0',
+            description='Per-waypoint timeout [s].'),
+        DeclareLaunchArgument(
+            'control_rate', default_value='50.0',
+            description='IK control loop rate [Hz].'),
 
         franka_bringup,
         arm_controller_spawner,

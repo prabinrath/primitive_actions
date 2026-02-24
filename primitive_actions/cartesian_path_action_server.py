@@ -37,19 +37,6 @@ class CartesianPathActionServer(Node):
     and drives the robot there using IK, publishing JointTrajectory commands.
     """
 
-    # Server-side defaults (overridable via action goal fields)
-    DEFAULT_ALPHA = 0.9          # IK smoothing factor
-
-    # Convergence thresholds
-    POSITION_THRESHOLD = 0.005   # 5 mm
-    ORIENTATION_THRESHOLD = 0.02  # ~1.15 deg
-
-    # Per-waypoint safety timeout
-    WAYPOINT_TIMEOUT = 30.0      # seconds
-
-    # Control loop rate
-    CONTROL_RATE = 50.0          # Hz
-
     # ------------------------------------------------------------------
     def __init__(self):
         super().__init__('cartesian_path_action_server')
@@ -57,6 +44,11 @@ class CartesianPathActionServer(Node):
         # --- Declare parameters ---
         self.declare_parameter('urdf_path', '')
         self.declare_parameter('ee_frame', 'fr3_hand_tcp')
+        self.declare_parameter('default_alpha', 0.9)
+        self.declare_parameter('position_threshold', 0.005)
+        self.declare_parameter('orientation_threshold', 0.02)
+        self.declare_parameter('waypoint_timeout', 30.0)
+        self.declare_parameter('control_rate', 50.0)
         self.declare_parameter('joint_names', [
             'fr3_joint1', 'fr3_joint2', 'fr3_joint3',
             'fr3_joint4', 'fr3_joint5', 'fr3_joint6', 'fr3_joint7',
@@ -72,6 +64,11 @@ class CartesianPathActionServer(Node):
         self.default_ee_frame: str = self.get_parameter('ee_frame').value
         self.joint_trajectory_topic: str = \
             self.get_parameter('joint_trajectory_topic').value
+        self.default_alpha: float = self.get_parameter('default_alpha').value
+        self.position_threshold: float = self.get_parameter('position_threshold').value
+        self.orientation_threshold: float = self.get_parameter('orientation_threshold').value
+        self.waypoint_timeout: float = self.get_parameter('waypoint_timeout').value
+        self.control_rate: float = self.get_parameter('control_rate').value
 
         # --- Load URDF and set up placo IK solver ---
         urdf_path: str = self.get_parameter('urdf_path').value
@@ -95,7 +92,7 @@ class CartesianPathActionServer(Node):
         self.solver = self.robot.make_solver()
         self.solver.mask_fbase(True)
         self.solver.enable_joint_limits(True)
-        self.solver.dt = 1.0 / self.CONTROL_RATE
+        self.solver.dt = 1.0 / self.control_rate
 
         # Initialise robot to neutral posture
         for name, pos in zip(self.joint_names, self.neutral_positions):
@@ -106,7 +103,7 @@ class CartesianPathActionServer(Node):
         self.frame_task = self.solver.add_frame_task(
             self.default_ee_frame, np.eye(4))
         self.frame_task.configure(
-            self.default_ee_frame, 'soft', 0.5, 0.5)
+            self.default_ee_frame, 'soft', 1.0, 1.0)
 
         # Nullspace regularisation – pull joints toward neutral
         self.joints_task = self.solver.add_joints_task()
@@ -225,8 +222,8 @@ class CartesianPathActionServer(Node):
         waypoints = goal.path.poses
         ee_frame = goal.ee_frame if goal.ee_frame else self.default_ee_frame
         alpha = (goal.alpha
-                 if 0.0 < goal.alpha <= 1.0 else self.DEFAULT_ALPHA)
-        dt = 1.0 / self.CONTROL_RATE
+                 if 0.0 < goal.alpha <= 1.0 else self.default_alpha)
+        dt = 1.0 / self.control_rate
 
         self.get_logger().info(
             f'Goal accepted: {len(waypoints)} waypoints | '
@@ -250,7 +247,7 @@ class CartesianPathActionServer(Node):
         self.frame_task.configure(ee_frame, 'soft', 0.5, 0.5)
 
         # Reset solver dt to default at the start of each new execution
-        self.solver.dt = 1.0 / self.CONTROL_RATE
+        self.solver.dt = 1.0 / self.control_rate
 
         # Wait up to 5 s for the first joint state
         deadline = self.get_clock().now().nanoseconds / 1e9 + 5.0
@@ -298,7 +295,7 @@ class CartesianPathActionServer(Node):
                 now = time.perf_counter()
 
                 # --- Timeout guard ---
-                if now - wp_start > self.WAYPOINT_TIMEOUT:
+                if now - wp_start > self.waypoint_timeout:
                     goal_handle.abort()
                     return CartesianPathFollow.Result(
                         success=False,
@@ -312,7 +309,7 @@ class CartesianPathActionServer(Node):
                 # --- Adaptive dt (clamped to avoid large steps during stalls) ---
                 elapsed = now - last_loop
                 if last_loop != wp_start:
-                    self.solver.dt = min(elapsed, 1.0 / self.CONTROL_RATE * 4)
+                    self.solver.dt = min(elapsed, 1.0 / self.control_rate * 4)
                 last_loop = now
 
                 # --- FK of real robot state (before IK solve) ---
@@ -328,8 +325,8 @@ class CartesianPathActionServer(Node):
                 goal_handle.publish_feedback(feedback)
 
                 # --- Convergence check (against real robot FK) ---
-                if (pos_err < self.POSITION_THRESHOLD
-                        and ang_err < self.ORIENTATION_THRESHOLD):
+                if (pos_err < self.position_threshold
+                        and ang_err < self.orientation_threshold):
                     self.get_logger().info(
                         f'  Waypoint {wp_idx + 1}/{len(waypoints)} '
                         f'reached  pos={pos_err * 1e3:.1f}mm  '
