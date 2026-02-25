@@ -371,12 +371,8 @@ class CartesianPathActionServer(Node):
 
     def _precompute_ik_path(self, waypoints, ee_frame) -> list[list[float]]:
         """Run IK offline for every waypoint and return joint configs.
-
-        Uses a large solver dt so IK converges in few iterations.
-        The robot model state carries over between waypoints so the solver
-        always starts warm from the previous solution.
         """
-        self.solver.dt = 0.1  # large step for fast offline convergence
+        self.solver.dt = 1.0 / self.control_rate
         configs: list[list[float]] = []
         for wp_pose in waypoints:
             T_target = self._pose_to_T(wp_pose)
@@ -390,7 +386,6 @@ class CartesianPathActionServer(Node):
                 if pos_err < self.position_threshold and ang_err < self.orientation_threshold:
                     break
             configs.append([self.robot.get_joint(n) for n in self.joint_names])
-        self.solver.dt = 1.0 / self.control_rate  # restore
         return configs
 
     def _smooth_trajectory(
@@ -414,7 +409,8 @@ class CartesianPathActionServer(Node):
 
         # Time axis: T = π*L / (2*v_max)
         T = np.pi * total / (2.0 * max_vel_norm)
-        times = np.linspace(0.0, T, max(2, int(np.ceil(T / 0.1))) + 1)
+        dt = 1 / self.control_rate
+        times = np.linspace(0.0, T, max(2, int(np.ceil(T / dt))) + 1)
 
         # Cosine arc-length at each time step → interpolate each joint
         s = 0.5 * (1.0 - np.cos(np.pi * times / T))

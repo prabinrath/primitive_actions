@@ -163,6 +163,7 @@ class CircleTestClient(Node):
         goal.linear_speed = linear_speed
         goal.angular_speed = angular_speed
         goal.alpha = alpha
+        goal.open_loop = True
 
         self.get_logger().info('Sending goal ...')
         send_goal_future = self._action_client.send_goal_async(
