@@ -5,6 +5,7 @@
 #
 # Accepts a geometry_msgs/PoseArray (EE waypoints in the robot base frame)
 # and executes the path using IK (placo) + joint trajectory commands.
+# TODO: Implement time from start for each pose target for enabling dynamic actions
 # ---------------------------------------------------------------------------
 
 import time
