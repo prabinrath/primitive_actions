@@ -16,16 +16,16 @@
 #
 # Pick sequence:
 #   1. Open gripper
-#   2. Top-down approach  →  (x, y, z + approach_height)
+#   2. Top-down approach  →  (x, y, approach_height)   ← absolute Z
 #   3. Descend            →  (x, y, z)
 #   4. Close gripper
-#   5. Retract            →  (x, y, z + approach_height)
+#   5. Retract            →  (x, y, approach_height)   ← absolute Z
 #
 # Place sequence:
-#   1. Top-down approach  →  (x, y, z + approach_height)
+#   1. Top-down approach  →  (x, y, approach_height)   ← absolute Z
 #   2. Descend            →  (x, y, z)
 #   3. Open gripper
-#   4. Retract            →  (x, y, z + approach_height)
+#   4. Retract            →  (x, y, approach_height)   ← absolute Z
 #
 # Chaining:
 #   Primitives are serialised by a single execution lock, so successive
@@ -466,6 +466,9 @@ class PrimitiveActionPlanner(Node):
         goal = goal_handle.request
         x, y, z = goal.x, goal.y, goal.z
         yaw = goal.yaw
+        # approach_height is an absolute Z coordinate in the robot base frame,
+        # not a relative offset above z.  Falls back to the server default when
+        # the goal sends 0.
         h = goal.approach_height if goal.approach_height > 0.0 \
             else self._approach_height
 
@@ -487,7 +490,7 @@ class PrimitiveActionPlanner(Node):
 
         # 2. Move to approach pose ------------------------------------------
         publish('approaching')
-        approach_pose = self._top_down_pose(x, y, z + h, yaw)
+        approach_pose = self._top_down_pose(x, y, h, yaw)
         if not self._send_cartesian_path(self._interpolate_path(approach_pose)):
             return abort('Failed to reach approach pose.')
 
@@ -514,7 +517,7 @@ class PrimitiveActionPlanner(Node):
 
         # 5. Retract to approach pose ----------------------------------------
         publish('retracting')
-        retract_pose = self._top_down_pose(x, y, z + h, yaw)
+        retract_pose = self._top_down_pose(x, y, h, yaw)
         if not self._send_cartesian_path(self._interpolate_path(retract_pose)):
             return abort('Failed to retract after pick.')
 
@@ -537,6 +540,9 @@ class PrimitiveActionPlanner(Node):
         goal = goal_handle.request
         x, y, z = goal.x, goal.y, goal.z
         yaw = goal.yaw
+        # approach_height is an absolute Z coordinate in the robot base frame,
+        # not a relative offset above z.  Falls back to the server default when
+        # the goal sends 0.
         h = goal.approach_height if goal.approach_height > 0.0 \
             else self._approach_height
 
@@ -553,7 +559,7 @@ class PrimitiveActionPlanner(Node):
 
         # 1. Move to approach pose (gripper already holding object) ----------
         publish('approaching')
-        approach_pose = self._top_down_pose(x, y, z + h, yaw)
+        approach_pose = self._top_down_pose(x, y, h, yaw)
         if not self._send_cartesian_path(self._interpolate_path(approach_pose)):
             return abort('Failed to reach approach pose.')
 
@@ -580,7 +586,7 @@ class PrimitiveActionPlanner(Node):
 
         # 4. Retract to approach pose -----------------------------------------
         publish('retracting')
-        retract_pose = self._top_down_pose(x, y, z + h, yaw)
+        retract_pose = self._top_down_pose(x, y, h, yaw)
         if not self._send_cartesian_path(self._interpolate_path(retract_pose)):
             return abort('Failed to retract after place.')
 
