@@ -4,6 +4,7 @@ from rclpy.node import Node
 from rclpy.action import ActionClient
 from sensor_msgs.msg import Joy
 from franka_msgs.action import ErrorRecovery
+from action_msgs.srv import CancelGoal
 from controller_manager_msgs.srv import (
     LoadController, ConfigureController, SwitchController)
 from rcl_interfaces.srv import SetParameters
@@ -25,6 +26,12 @@ class FrankaErrorRecovery(Node):
 
         self.error_recovery_client = ActionClient(
             self, ErrorRecovery, '/action_server/error_recovery')
+        self.cartesian_cancel_client = self.create_client(
+            CancelGoal, 'cartesian_path_follow/_action/cancel_goal')
+        self.pick_cancel_client = self.create_client(
+            CancelGoal, 'pick/_action/cancel_goal')
+        self.place_cancel_client = self.create_client(
+            CancelGoal, 'place/_action/cancel_goal')
         self.load_controller_client = self.create_client(
             LoadController, '/controller_manager/load_controller')
         self.configure_controller_client = self.create_client(
@@ -61,6 +68,16 @@ class FrankaErrorRecovery(Node):
 
         def recovery_thread():
             self.get_logger().info('Starting error recovery...')
+            for client, name in [
+                (self.cartesian_cancel_client, 'cartesian_path_follow'),
+                (self.pick_cancel_client, 'pick'),
+                (self.place_cancel_client, 'place'),
+            ]:
+                if client.service_is_ready():
+                    self.get_logger().info(f'Cancelling all {name} goals...')
+                    future = client.call_async(CancelGoal.Request())
+                    rclpy.spin_until_future_complete(
+                        self, future, timeout_sec=5.0)
             goal = ErrorRecovery.Goal()
             future = self.error_recovery_client.send_goal_async(goal)
             rclpy.spin_until_future_complete(self, future, timeout_sec=10.0)
